@@ -2,7 +2,14 @@ package h264
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
+)
+
+const (
+	AVC_PKT_SEQ_HEADER = 0
+	AVC_PKT_NALU       = 1
+	AVC_PKT_END_SEQ    = 2
 )
 
 const (
@@ -57,17 +64,17 @@ var nalTypeMap = map[int]string{
 	NAL_FF_IGNORE:       "ff_ignore",
 }
 
-func isStartCode(data []byte, pos int) (int, bool) {
-	if data[pos] == 0 && data[pos+1] == 0 && data[pos+2] == 1 {
-		return 3, true
-	}
+// func isStartCode(data []byte, pos int) (int, bool) {
+// 	if data[pos] == 0 && data[pos+1] == 0 && data[pos+2] == 1 {
+// 		return 3, true
+// 	}
 
-	if data[pos] == 0 && data[pos+1] == 0 && data[pos+2] == 0 && data[pos+3] == 1 {
-		return 4, true
-	}
+// 	if data[pos] == 0 && data[pos+1] == 0 && data[pos+2] == 0 && data[pos+3] == 1 {
+// 		return 4, true
+// 	}
 
-	return 0, false
-}
+// 	return 0, false
+// }
 
 type Nalu struct {
 	Len             int
@@ -77,35 +84,82 @@ type Nalu struct {
 }
 
 func (n *Nalu) String() string {
-	return fmt.Sprintf("|priority: %s|type: %s", nalPrioMap[n.NalReferenceIdc], nalTypeMap[n.NalUnitType])
+	nt := nalTypeMap[n.NalUnitType]
+	if len(nt) == 0 {
+		nt = "unknown"
+	}
+	return fmt.Sprintf("|priority: %s|type: %s", nalPrioMap[n.NalReferenceIdc], nt)
 }
 
-func hexBytes(data []byte) {
-	fmt.Println()
-	for _, b := range data {
-		fmt.Printf("%02X ", b)
+// func hexBytes(data []byte) {
+// 	fmt.Println()
+// 	for _, b := range data {
+// 		fmt.Printf("%02X ", b)
+// 	}
+// 	fmt.Println()
+// }
+
+var gNaluSize int
+
+func ParseNalu(buffer *bytes.Buffer) {
+
+	var cts int
+	for i := 0; i < 3; i++ {
+		b, _ := buffer.ReadByte()
+		cts = (cts << 8) | int(b)
 	}
-	fmt.Println()
+
+	fmt.Printf("|cts=%d", cts)
+
+	if gNaluSize == 0 {
+		panic("nalu size is 0")
+	}
+
+	data := buffer.Next(gNaluSize)
+	length := binary.BigEndian.Uint32(data)
+
+	// fmt.Printf("\nnalu size: %d nalu length: %d\n", gNaluSize, length)
+
+	b := int(buffer.Bytes()[0])
+	n := Nalu{ForbiddenBit: b >> 7, NalReferenceIdc: (b >> 5) & 0x03, NalUnitType: b & 0x1f, Len: int(length)}
+	fmt.Print(n.String())
+}
+
+// type SeqHeader struct {
+// 	version       int //8
+// 	provile       int //8
+// 	compatibility int //8
+// 	level         int //8
+// 	reserved   	  int //6
+// 	naluLenSize   int //2
+// 	//...
+// }
+
+func ParseSeq(buffer *bytes.Buffer) {
+	var cts int
+	for i := 0; i < 3; i++ {
+		b, _ := buffer.ReadByte()
+		cts = (cts << 8) | int(b)
+	}
+
+	fmt.Printf("|type=seq header|cts=%d", cts)
+
+	buffer.ReadByte()
+	buffer.ReadByte()
+	buffer.ReadByte()
+	buffer.ReadByte()
+	b, _ := buffer.ReadByte()
+	gNaluSize = (int(b) & 0x03) + 1
 }
 
 func Parse(buffer *bytes.Buffer) {
-	data, p := buffer.Bytes(), 0
-
-	for p < len(data) {
-		size, flag := isStartCode(data, p)
-		if !flag {
-			p++
-			continue
-		}
-
-		p += size
-		if p >= len(data) {
-			break
-		}
-
-		b := int(data[p])
-		n := Nalu{ForbiddenBit: b >> 7, NalReferenceIdc: (b >> 5) & 0x03, NalUnitType: b & 0x1f, Len: len(data) - p}
-		fmt.Print(n.String())
+	fmt.Printf("|type=%d", int(buffer.Bytes()[0]))
+	switch buffer.Bytes()[0] {
+	case 0:
+		ParseSeq(buffer)
+	case 1:
+		ParseNalu(buffer)
+	case 2:
 		break
 	}
 }

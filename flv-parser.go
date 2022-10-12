@@ -6,8 +6,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
-
 	"media-go/h264"
+
 	"os"
 	"strconv"
 
@@ -356,14 +356,10 @@ func (fp *FlvParser) readVideo() {
 	codec := VideoCodecMap[flag&0x0f]
 	fmt.Printf("|%s|%s", ft, codec)
 
-	var buffer *bytes.Buffer
 	if flag&0x0f == FLV_CODECID_H264 {
-		buffer = bytes.NewBuffer(packet[2:])
-	} else {
-		buffer = bytes.NewBuffer(packet[1:])
+		buffer := bytes.NewBuffer(packet[1:])
+		h264.Parse(buffer)
 	}
-
-	h264.Parse(buffer)
 }
 
 func (fp *FlvParser) readAudio() {
