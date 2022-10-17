@@ -91,6 +91,52 @@ func (n *Nalu) String() string {
 	return fmt.Sprintf("|priority: %s|type: %s", nalPrioMap[n.NalReferenceIdc], nt)
 }
 
+type SPS struct {
+	ProfileIdc                      int
+	ConstraintSet0Flag              int
+	ConstraintSet1Flag              int
+	ConstraintSet2Flag              int
+	ConstraintSet3Flag              int
+	ConstraintSet4Flag              int
+	ConstraintSet5Flag              int
+	ReservedZero2Bits               int
+	LevelIdc                        int
+	SPSId                           int
+	ChromaFormatIdc                 int
+	ResidualColourTransformFlag     int
+	BitDepthLumaMinus8              int
+	BitDepthChromaMinus8            int
+	QpprimeYZeroTransformBypassFlag int
+	SeqScalingMatrixPresentFlag     int
+	ScalingMatrix4                  [6][16]int
+	ScalingMatrix8                  [6][64]int
+	Log2MaxFrameNumMinus4           int
+	PicOrderCntType                 int
+	Log2MaxPicOrderCntLsbMinus4     int
+	DeltaPicOrderAlwaysZeroFlag     int
+	OffsetForNonRefPic              int
+	OffsetForTopToBottomField       int
+	NumRefFramesInPicOrderCntCycle  int
+	OffsetForRefFrame               []int
+	NumRefFrames                    int
+	GapsInFrameNumValueAllowedFlag  int
+	PicWidthInMbsMinus1             int
+	PicHeightInMapUnitsMinus1       int
+	FrmaeMbsOnlyFlag                int
+	MbAdaptiveFrameFieldFlag        int
+	Direct8x8InferenceFlag          int
+	FrameCropingFlag                int
+	FrameCropLeftOffset             int
+	FrameCropRightOffset            int
+	FrameCropTopOffset              int
+	FrameCropButtomOffset           int
+	VuiParametersPresentFlag        int
+	//...
+}
+
+type PPS struct {
+}
+
 // func hexBytes(data []byte) {
 // 	fmt.Println()
 // 	for _, b := range data {
@@ -135,6 +181,29 @@ func ParseNalu(buffer *bytes.Buffer) {
 // 	//...
 // }
 
+func ParseSPS(buffer *bytes.Buffer, size int) {
+	var sps SPS
+
+	b, _ := buffer.ReadByte()
+	sps.ProfileIdc = int(b)
+
+	b, _ = buffer.ReadByte()
+	sps.ConstraintSet0Flag = (int(b) & 0x10000000) >> 7
+	sps.ConstraintSet1Flag = (int(b) & 0x01000000) >> 6
+	sps.ConstraintSet2Flag = (int(b) & 0x00100000) >> 5
+	sps.ConstraintSet3Flag = (int(b) & 0x00010000) >> 4
+	sps.ConstraintSet4Flag = (int(b) & 0x00001000) >> 3
+	sps.ConstraintSet5Flag = (int(b) & 0x00000100) >> 2
+	sps.ReservedZero2Bits = 0
+
+	b, _ = buffer.ReadByte()
+	sps.LevelIdc = int(b)
+
+}
+
+func ParsePPS(buffer *bytes.Buffer, size int) {
+}
+
 func ParseSeq(buffer *bytes.Buffer) {
 	var cts int
 	for i := 0; i < 3; i++ {
@@ -150,6 +219,22 @@ func ParseSeq(buffer *bytes.Buffer) {
 	buffer.ReadByte()
 	b, _ := buffer.ReadByte()
 	gNaluSize = (int(b) & 0x03) + 1
+
+	// b, _ = buffer.ReadByte()
+	// spsNum := int(b) & 0b0001111
+
+	// for i := 0; i < spsNum; i++ {
+	// 	spsSize := int(binary.BigEndian.Uint16(buffer.Next(2)))
+	// 	ParseSPS(buffer, spsSize)
+	// }
+
+	// b, _ = buffer.ReadByte()
+	// ppsNum := int(b) & 0b0001111
+
+	// for i := 0; i < ppsNum; i++ {
+	// 	spsSize := int(binary.BigEndian.Uint16(buffer.Next(2)))
+	// 	ParsePPS(buffer, spsSize)
+	// }
 }
 
 func Parse(buffer *bytes.Buffer) {

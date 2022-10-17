@@ -1,21 +1,15 @@
-package main
+package flv
 
 import (
 	"bytes"
 	"encoding/binary"
-	"flag"
 	"fmt"
-	"io"
-	"media-go/h264"
-
-	"os"
 	"strconv"
 
-	"github.com/torresjeff/rtmp/amf/amf0"
-)
+	"media-go/codec/h264"
+	"media-go/core"
 
-var (
-	inputFile = flag.String("input_file", "", "input file")
+	"github.com/torresjeff/rtmp/amf/amf0"
 )
 
 const (
@@ -109,11 +103,11 @@ var VideoCodecMap = map[int]string{
 }
 
 type FlvParser struct {
-	InputFile string
 	Status    int
 	TagStatus int
 	buffer    bytes.Buffer
 	flv       *FLV
+	ctx       *core.Context
 }
 
 type FLVHeader struct {
@@ -185,40 +179,28 @@ type FLVBody struct {
 }
 
 type FLV struct {
+	Ctx    *core.Context
 	Header *FLVHeader
 	Body   *FLVBody
 
 	Parser FlvParser
 }
 
-func NewFLV(input string) *FLV {
+func NewFLV(ctx *core.Context) *FLV {
 	flv := &FLV{Header: &FLVHeader{},
 		Body:   nil,
-		Parser: FlvParser{InputFile: input}}
+		Parser: FlvParser{ctx: ctx}}
 	flv.Parser.flv = flv
 	return flv
 }
 
-func (fp *FlvParser) DoParse() {
-	fd, err := os.Open(fp.InputFile)
-	if err != nil {
-		panic(err)
-	}
+func (flv *FLV) Decode(data []byte) {
+	flv.Parser.Decode(data)
+}
 
-	defer fd.Close()
-
-	buffer := make([]byte, 1024)
-
-	for {
-		size, err := fd.Read(buffer)
-		if err == io.EOF || size < 0 {
-			fmt.Println("EOF")
-			break
-		}
-
-		fp.buffer.Write(buffer[:size])
-		fp.parseNext()
-	}
+func (fp *FlvParser) Decode(data []byte) {
+	fp.buffer.Write(data)
+	fp.parseNext()
 }
 
 func (fp *FlvParser) parseNext() {

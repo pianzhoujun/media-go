@@ -1,14 +1,35 @@
 package main
 
-import "flag"
+import (
+	"flag"
+	"media-go/core"
+	"media-go/flow"
+)
+
+var (
+	source = flag.String("i", "", "input file")
+	action = flag.String("filter", "", "video|audio|meta")
+)
 
 func main() {
 	flag.Parse()
-	if len(*inputFile) == 0 {
+	if len(*source) == 0 {
 		flag.Usage()
 		return
 	}
 
-	flv := NewFLV(*inputFile)
-	flv.Parser.DoParse()
+	ctx := core.NewContext()
+	ctx.Source = *source
+	switch *action {
+	case "video":
+		ctx.Filter = core.Video
+	case "audio":
+		ctx.Filter = core.Audio
+	case "meta":
+		ctx.Filter = core.MetaData
+	default:
+		ctx.Filter = core.All
+	}
+
+	flow.Run(ctx)
 }
