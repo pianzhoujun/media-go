@@ -171,6 +171,7 @@ func (h *TagHeader) String() string {
 type FLVTag struct {
 	Header TagHeader
 	Data   []byte
+	String string
 }
 
 type FLVBody struct {
@@ -200,10 +201,7 @@ func (flv *FLV) Decode(data []byte) {
 
 func (fp *FlvParser) Decode(data []byte) {
 	fp.buffer.Write(data)
-	fp.parseNext()
-}
 
-func (fp *FlvParser) parseNext() {
 	if fp.Status == PHEADER {
 		fp.parseHeader()
 	}
@@ -274,7 +272,7 @@ func (fp *FlvParser) parseTagHeader() {
 	fp.flv.Body = body
 	fp.TagStatus = PTagBody
 
-	fmt.Print(fp.flv.Body.Tag.Header.String())
+	// fmt.Printf("Tag: %s\n", fp.flv.Body.Tag.Header.String())
 }
 
 func (fp *FlvParser) parseTagBody() {
@@ -295,19 +293,28 @@ func (fp *FlvParser) readPacket() {
 
 	switch fp.flv.Body.Tag.Header.Type {
 	case MetaData:
-		fp.readMetadata()
+		meta := fp.readMetadata()
+		if fp.ctx.Filter == core.MetaData {
+			fp.ctx.Done = true
+			fmt.Print(meta)
+		}
 	case Video:
-		fp.readVideo()
+		videoFrame := fp.readVideo()
+		if fp.ctx.Filter == core.Video {
+			fmt.Println(videoFrame.String())
+		}
 	case Audio:
 		fp.readAudio()
 	}
 
-	fmt.Println()
+	// fmt.Println()
 }
 
-func (fp *FlvParser) readMetadata() {
+func (fp *FlvParser) readMetadata() string {
 	packet := fp.flv.Body.Tag.Data
 	pos := 0
+
+	var meta string
 
 	for {
 		content, err := amf0.Decode(packet[pos:])
@@ -319,32 +326,62 @@ func (fp *FlvParser) readMetadata() {
 		switch content.(type) {
 		case amf0.ECMAArray:
 			for key, value := range content.(amf0.ECMAArray) {
-				fmt.Printf("%s : %v\n", key, value)
+				meta += fmt.Sprintf("\t\t%-20s:\t%v\n", key, value)
 			}
 		default:
-			fmt.Printf("%v\n", content)
+			meta += fmt.Sprintf("\t%v\n", content)
 		}
 
 		if pos >= len(packet) {
 			break
 		}
 	}
+
+	return meta
 }
 
-func (fp *FlvParser) readVideo() {
+type VideoFrame struct {
+	TypeInt  int
+	Type     string
+	CodecInt int
+	Codec    string
+	Frame    interface{}
+}
+
+func (vf *VideoFrame) String() string {
+	var str string
+	str = fmt.Sprintf("type: (%d|%8s) codec: (%d|%s)", vf.TypeInt, vf.Type, vf.CodecInt, vf.Codec)
+
+	if vf.Frame != nil {
+		switch vf.Frame.(type) {
+		case h264.VideoFrameInfo:
+			str += fmt.Sprintf(" h264: (%s)", vf.Frame.(*h264.VideoFrameInfo).String())
+		}
+	}
+
+	return str
+}
+
+func (fp *FlvParser) readVideo() *VideoFrame {
 	packet := fp.flv.Body.Tag.Data
 	flag := int(packet[0])
-	ft := VideoFrameType[flag>>4]
-	codec := VideoCodecMap[flag&0x0f]
-	fmt.Printf("|%s|%s", ft, codec)
+
+	vf := &VideoFrame{
+		TypeInt:  flag >> 4,
+		Type:     VideoFrameType[flag>>4],
+		CodecInt: flag & 0x0f,
+		Codec:    VideoCodecMap[flag&0x0f],
+	}
 
 	if flag&0x0f == FLV_CODECID_H264 {
 		buffer := bytes.NewBuffer(packet[1:])
-		h264.Parse(buffer)
+		vf.Frame = h264.Parse(buffer)
 	}
+
+	return vf
 }
 
-func (fp *FlvParser) readAudio() {
+func (fp *FlvParser) readAudio() string {
 	packet := fp.flv.Body.Tag.Data
 	flag := int(packet[0])
 
@@ -366,5 +403,5 @@ func (fp *FlvParser) readAudio() {
 		audioType = "sndStereo"
 	}
 
-	fmt.Printf("|%s-%s-%s-%s", codec, sampleRate, accuracy, audioType)
+	return fmt.Sprintf("|%s-%s-%s-%s", codec, sampleRate, accuracy, audioType)
 }

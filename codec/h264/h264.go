@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"media-go/codec/golomb"
+	"media-go/core"
+	"os"
 )
 
 const (
@@ -81,6 +84,7 @@ type Nalu struct {
 	ForbiddenBit    int
 	NalReferenceIdc int
 	NalUnitType     int
+	Rbsp            []byte
 }
 
 func (n *Nalu) String() string {
@@ -137,25 +141,19 @@ type SPS struct {
 type PPS struct {
 }
 
-// func hexBytes(data []byte) {
-// 	fmt.Println()
-// 	for _, b := range data {
-// 		fmt.Printf("%02X ", b)
-// 	}
-// 	fmt.Println()
-// }
-
 var gNaluSize int
 
-func ParseNalu(buffer *bytes.Buffer) {
-
+func ParseCts(buffer *bytes.Buffer) int {
 	var cts int
 	for i := 0; i < 3; i++ {
 		b, _ := buffer.ReadByte()
 		cts = (cts << 8) | int(b)
 	}
+	return cts
+}
 
-	fmt.Printf("|cts=%d", cts)
+func ParseNalu(vf *VideoFrameInfo, buffer *bytes.Buffer) {
+	cts := ParseCts(buffer)
 
 	if gNaluSize == 0 {
 		panic("nalu size is 0")
@@ -164,11 +162,9 @@ func ParseNalu(buffer *bytes.Buffer) {
 	data := buffer.Next(gNaluSize)
 	length := binary.BigEndian.Uint32(data)
 
-	// fmt.Printf("\nnalu size: %d nalu length: %d\n", gNaluSize, length)
-
 	b := int(buffer.Bytes()[0])
-	n := Nalu{ForbiddenBit: b >> 7, NalReferenceIdc: (b >> 5) & 0x03, NalUnitType: b & 0x1f, Len: int(length)}
-	fmt.Print(n.String())
+	vf.Cts = cts
+	vf.NaluInfo = &Nalu{ForbiddenBit: b >> 7, NalReferenceIdc: (b >> 5) & 0x03, NalUnitType: b & 0x1f, Len: int(length)}
 }
 
 // type SeqHeader struct {
@@ -181,70 +177,195 @@ func ParseNalu(buffer *bytes.Buffer) {
 // 	//...
 // }
 
-func ParseSPS(buffer *bytes.Buffer, size int) {
-	var sps SPS
-
+// parse sps nalu and rbsp
+func ParseSPS(data []byte) {
+	buffer := bytes.NewBuffer(data)
+	nalu := Nalu{}
 	b, _ := buffer.ReadByte()
+	n := int(b)
+
+	nalu.ForbiddenBit = n >> 7
+	nalu.NalReferenceIdc = (n >> 5) & 0x03
+	nalu.NalUnitType = n & 0x1f
+
+	if nalu.NalUnitType != 7 {
+		panic(fmt.Sprintf("nalu type not match %d", nalu.NalUnitType))
+	}
+
+	nalu.Rbsp = make([]byte, len(data))
+	n = 0
+
+	for buffer.Len() > 0 {
+		nalu.Rbsp[n], _ = buffer.ReadByte()
+		if n > 2 && (nalu.Rbsp[n-2] == 0 && nalu.Rbsp[n-1] == 0 && nalu.Rbsp[n] == 3) {
+			if buffer.Len() == 0 {
+				break
+			}
+
+			nalu.Rbsp[n], _ = buffer.ReadByte()
+		}
+
+		n++
+	}
+
+	// TODO: parse sps rbsp
+	buffer = bytes.NewBuffer(nalu.Rbsp[:n])
+	var sps SPS
+	b, _ = buffer.ReadByte()
 	sps.ProfileIdc = int(b)
 
+	// fmt.Printf("idc: %v\n", sps.ProfileIdc)
+
 	b, _ = buffer.ReadByte()
-	sps.ConstraintSet0Flag = (int(b) & 0x10000000) >> 7
-	sps.ConstraintSet1Flag = (int(b) & 0x01000000) >> 6
-	sps.ConstraintSet2Flag = (int(b) & 0x00100000) >> 5
-	sps.ConstraintSet3Flag = (int(b) & 0x00010000) >> 4
-	sps.ConstraintSet4Flag = (int(b) & 0x00001000) >> 3
-	sps.ConstraintSet5Flag = (int(b) & 0x00000100) >> 2
-	sps.ReservedZero2Bits = 0
+	x := int(b)
+	sps.ConstraintSet0Flag = (x >> 7) & 0x01
+	sps.ConstraintSet1Flag = (x >> 6) & 0x01
+	sps.ConstraintSet2Flag = (x >> 5) & 0x01
+	sps.ConstraintSet3Flag = (x >> 4) & 0x01
+	sps.ConstraintSet4Flag = (x >> 3) & 0x01
+	sps.ConstraintSet5Flag = (x >> 2) & 0x01
 
 	b, _ = buffer.ReadByte()
 	sps.LevelIdc = int(b)
+	// fmt.Printf("level idc: %v\n", sps.LevelIdc)
+	bs := core.NewBitStream(buffer.Bytes())
+	sps.SPSId = golomb.ReadUEV(bs)
+	// fmt.Printf("sps id: %v\n", sps.SPSId)
 
-}
+	if sps.ProfileIdc == 100 || sps.ProfileIdc == 110 || sps.ProfileIdc == 122 ||
+		sps.ProfileIdc == 244 || sps.ProfileIdc == 44 || sps.ProfileIdc == 83 ||
+		sps.ProfileIdc == 86 || sps.ProfileIdc == 118 || sps.ProfileIdc == 128 {
+		sps.ChromaFormatIdc = golomb.ReadUEV(bs)
 
-func ParsePPS(buffer *bytes.Buffer, size int) {
-}
+		if sps.ChromaFormatIdc == 3 {
+			sps.ResidualColourTransformFlag = bs.Next()
+		}
 
-func ParseSeq(buffer *bytes.Buffer) {
-	var cts int
-	for i := 0; i < 3; i++ {
-		b, _ := buffer.ReadByte()
-		cts = (cts << 8) | int(b)
+		sps.BitDepthLumaMinus8 = golomb.ReadUEV(bs)
+		sps.BitDepthChromaMinus8 = golomb.ReadUEV(bs)
+
+		sps.QpprimeYZeroTransformBypassFlag = bs.Next()
+		sps.SeqScalingMatrixPresentFlag = bs.Next()
+
+		if sps.SeqScalingMatrixPresentFlag == 1 {
+			scmpfsNum := 8
+			if sps.ChromaFormatIdc == 3 {
+				scmpfsNum = 12
+			}
+
+			for i := 0; i < scmpfsNum; i++ {
+				// flagI := bs.Next()
+			}
+		}
+
+		sps.Log2MaxFrameNumMinus4 = golomb.ReadUEV(bs)
+		sps.PicOrderCntType = golomb.ReadUEV(bs)
+		if sps.PicOrderCntType == 0 {
+			sps.Log2MaxPicOrderCntLsbMinus4 = golomb.ReadUEV(bs)
+		} else if sps.PicOrderCntType == 1 {
+			sps.DeltaPicOrderAlwaysZeroFlag = bs.Next()
+			sps.OffsetForNonRefPic = golomb.ReadUEV(bs)
+			sps.OffsetForTopToBottomField = golomb.ReadUEV(bs)
+			sps.NumRefFramesInPicOrderCntCycle = golomb.ReadUEV(bs)
+
+			sps.OffsetForRefFrame = make([]int, 0)
+			fmt.Printf("NumRefFramesInPicOrderCntCycle: %d\n", sps.NumRefFramesInPicOrderCntCycle)
+			for i := 0; i < sps.NumRefFramesInPicOrderCntCycle; i++ {
+				sps.OffsetForRefFrame = append(sps.OffsetForRefFrame, golomb.ReadUEV(bs))
+			}
+		}
+
+		sps.NumRefFrames = golomb.ReadUEV(bs)
+		sps.GapsInFrameNumValueAllowedFlag = bs.Next()
+		sps.PicWidthInMbsMinus1 = golomb.ReadUEV(bs)
+		sps.PicHeightInMapUnitsMinus1 = golomb.ReadUEV(bs)
+
+		sps.FrmaeMbsOnlyFlag = bs.Next()
+		if sps.FrmaeMbsOnlyFlag == 0 {
+			sps.MbAdaptiveFrameFieldFlag = bs.Next()
+		}
+
+		sps.Direct8x8InferenceFlag = bs.Next()
+		sps.FrameCropingFlag = bs.Next()
+		if sps.FrameCropingFlag == 1 {
+			sps.FrameCropLeftOffset = golomb.ReadUEV(bs)
+			sps.FrameCropRightOffset = golomb.ReadUEV(bs)
+			sps.FrameCropTopOffset = golomb.ReadUEV(bs)
+			sps.FrameCropButtomOffset = golomb.ReadUEV(bs)
+		}
+
+		sps.VuiParametersPresentFlag = bs.Next()
+		// vui paramters
 	}
 
-	fmt.Printf("|type=seq header|cts=%d", cts)
+	os.Exit(0)
+}
 
-	buffer.ReadByte()
-	buffer.ReadByte()
-	buffer.ReadByte()
-	buffer.ReadByte()
-	b, _ := buffer.ReadByte()
+func ParsePPS(data []byte) {}
+
+func ParseSeq(vf *VideoFrameInfo, buffer *bytes.Buffer) {
+	cts := ParseCts(buffer)
+
+	buffer.ReadByte()         // Configuration VerSion
+	buffer.ReadByte()         // AVC Profile SPS[1]
+	buffer.ReadByte()         // profile_compatibility SPS[2]
+	buffer.ReadByte()         // AVC Level SPS[3]
+	b, _ := buffer.ReadByte() // lengthSizeMinusOne
 	gNaluSize = (int(b) & 0x03) + 1
 
-	// b, _ = buffer.ReadByte()
-	// spsNum := int(b) & 0b0001111
+	vf.Type = "seq header"
+	vf.Cts = cts
+	vf.NaluSize = gNaluSize
 
-	// for i := 0; i < spsNum; i++ {
-	// 	spsSize := int(binary.BigEndian.Uint16(buffer.Next(2)))
-	// 	ParseSPS(buffer, spsSize)
-	// }
+	buffer.ReadByte()
+	// spsNum := int(b) & 0x1f
+	// sps number shoud always be 1
 
-	// b, _ = buffer.ReadByte()
-	// ppsNum := int(b) & 0b0001111
+	spsSize := int(binary.BigEndian.Uint16(buffer.Next(2)))
+	data := buffer.Next(spsSize)
+	ParseSPS(data)
 
-	// for i := 0; i < ppsNum; i++ {
-	// 	spsSize := int(binary.BigEndian.Uint16(buffer.Next(2)))
-	// 	ParsePPS(buffer, spsSize)
-	// }
+	b, _ = buffer.ReadByte()
+	ppsNum := int(b)
+	for i := 0; i < ppsNum; i++ {
+		spsSize := int(binary.BigEndian.Uint16(buffer.Next(2)))
+		data := buffer.Next(spsSize)
+		ParsePPS(data)
+	}
 }
 
-func Parse(buffer *bytes.Buffer) {
-	fmt.Printf("|type=%d", int(buffer.Bytes()[0]))
-	switch buffer.Bytes()[0] {
-	case 0:
-		ParseSeq(buffer)
-	case 1:
-		ParseNalu(buffer)
-	case 2:
-		break
+type VideoFrameInfo struct {
+	CodecType string
+	Type      string
+	Cts       int
+	NaluSize  int
+	NaluInfo  *Nalu
+	Frame     interface{} // TODO
+}
+
+func (f *VideoFrameInfo) String() string {
+	if f.NaluInfo == nil {
+		return fmt.Sprintf("code: %s\ttype: %s\tcts:%d", f.CodecType, f.Type, f.Cts)
 	}
+
+	return fmt.Sprintf("code: %s\ttype: %s\tcts:%d\tnalu: %s", f.CodecType, f.Type, f.Cts, f.NaluInfo.String())
+}
+
+func Parse(buffer *bytes.Buffer) *VideoFrameInfo {
+	vf := &VideoFrameInfo{}
+	b, _ := buffer.ReadByte()
+	switch int(b) {
+	case 0:
+		vf.CodecType = "seq"
+		ParseSeq(vf, buffer)
+	case 1:
+		vf.CodecType = "nalu"
+		ParseNalu(vf, buffer)
+	case 2:
+		vf.CodecType = "seq end"
+	}
+
+	fmt.Printf("\t%s\n", vf.String())
+
+	return vf
 }

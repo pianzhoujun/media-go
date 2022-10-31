@@ -27,6 +27,7 @@ type Context struct {
 	PktCb   PktCallback
 	FrameCb FrameCallback
 	SR      StreamReader
+	Done    bool
 }
 
 func NewContext() *Context {

@@ -14,7 +14,7 @@ func Run(ctx *core.Context) {
 
 	flv := flv.NewFLV(ctx)
 
-	for !reader.Done() {
+	for !reader.Done() && !ctx.Done {
 		reader.Read()
 		flv.Decode(reader.Buffer.Bytes())
 		reader.Buffer.Reset()

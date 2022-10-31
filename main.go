@@ -28,7 +28,7 @@ func main() {
 	case "meta":
 		ctx.Filter = core.MetaData
 	default:
-		ctx.Filter = core.All
+		ctx.Filter = core.MetaData
 	}
 
 	flow.Run(ctx)
