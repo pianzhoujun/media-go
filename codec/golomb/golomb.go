@@ -6,8 +6,7 @@ import (
 
 //Exp-Golomb
 func ReadUEV(bs *core.BitStream) int {
-	var leadingZerosBit int
-
+	leadingZerosBit := 0
 	for {
 		x := bs.Next()
 		if x == 1 {

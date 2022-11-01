@@ -3,6 +3,7 @@ package h264
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"media-go/codec/golomb"
 	"media-go/core"
@@ -96,45 +97,45 @@ func (n *Nalu) String() string {
 }
 
 type SPS struct {
-	ProfileIdc                      int
-	ConstraintSet0Flag              int
-	ConstraintSet1Flag              int
-	ConstraintSet2Flag              int
-	ConstraintSet3Flag              int
-	ConstraintSet4Flag              int
-	ConstraintSet5Flag              int
-	ReservedZero2Bits               int
-	LevelIdc                        int
-	SPSId                           int
-	ChromaFormatIdc                 int
-	ResidualColourTransformFlag     int
-	BitDepthLumaMinus8              int
-	BitDepthChromaMinus8            int
-	QpprimeYZeroTransformBypassFlag int
-	SeqScalingMatrixPresentFlag     int
-	ScalingMatrix4                  [6][16]int
-	ScalingMatrix8                  [6][64]int
-	Log2MaxFrameNumMinus4           int
-	PicOrderCntType                 int
-	Log2MaxPicOrderCntLsbMinus4     int
-	DeltaPicOrderAlwaysZeroFlag     int
-	OffsetForNonRefPic              int
-	OffsetForTopToBottomField       int
-	NumRefFramesInPicOrderCntCycle  int
-	OffsetForRefFrame               []int
-	NumRefFrames                    int
-	GapsInFrameNumValueAllowedFlag  int
-	PicWidthInMbsMinus1             int
-	PicHeightInMapUnitsMinus1       int
-	FrmaeMbsOnlyFlag                int
-	MbAdaptiveFrameFieldFlag        int
-	Direct8x8InferenceFlag          int
-	FrameCropingFlag                int
-	FrameCropLeftOffset             int
-	FrameCropRightOffset            int
-	FrameCropTopOffset              int
-	FrameCropButtomOffset           int
-	VuiParametersPresentFlag        int
+	ProfileIdc                      int        `json:"profile_idc"`
+	ConstraintSet0Flag              int        `json:"constraint_set0_flag"`
+	ConstraintSet1Flag              int        `json:"constraint_set1_flag"`
+	ConstraintSet2Flag              int        `json:"constraint_set2_flag"`
+	ConstraintSet3Flag              int        `json:"constraint_set3_flag"`
+	ConstraintSet4Flag              int        `json:"constraint_set4_flag"`
+	ConstraintSet5Flag              int        `json:"constraint_set5_flag"`
+	ReservedZero2Bits               int        `json:"-"`
+	LevelIdc                        int        `json:"level_idc"`
+	SPSId                           int        `json:"sps_id"`
+	ChromaFormatIdc                 int        `json:"chroma_format_idc"`
+	ResidualColourTransformFlag     int        `json:"residual_colour_transform_flag"`
+	BitDepthLumaMinus8              int        `json:"bit_depth_luma_minus8"`
+	BitDepthChromaMinus8            int        `json:"bit_deptn_chroma_minus8"`
+	QpprimeYZeroTransformBypassFlag int        `json:"qpprime_y_zero_transform_bypass_flag"`
+	SeqScalingMatrixPresentFlag     int        `json:"seq_scaling_matrix_present_flag"`
+	ScalingMatrix4                  [6][16]int `json:"-"`
+	ScalingMatrix8                  [6][64]int `json:"-"`
+	Log2MaxFrameNumMinus4           int        `json:"log2_max_frame_num_minus4"`
+	PicOrderCntType                 int        `json:"pic_order_cnt_type"`
+	Log2MaxPicOrderCntLsbMinus4     int        `json:"log2_max_pic_order_cnt_lsb_minus4"`
+	DeltaPicOrderAlwaysZeroFlag     int        `json:"delta_pic_order_always_zero_flag"`
+	OffsetForNonRefPic              int        `json:"offset_for_non_ref_pic"`
+	OffsetForTopToBottomField       int        `json:"offset_fot_top_to_bottom_field"`
+	NumRefFramesInPicOrderCntCycle  int        `json:"num_ref_frames_in_pic_order_cnt_cycle"`
+	OffsetForRefFrame               []int      `json:"offset_for_ref_frame"`
+	NumRefFrames                    int        `json:"num_ref_frames"`
+	GapsInFrameNumValueAllowedFlag  int        `json:"gaps_in_frame_num_value_allowed_flag"`
+	PicWidthInMbsMinus1             int        `json:"pic_width_in_mbs_minus1"`
+	PicHeightInMapUnitsMinus1       int        `json:"pic_height_in_map_units_minus1"`
+	FrameMbsOnlyFlag                int        `json:"frame_mbs_only_flag"`
+	MbAdaptiveFrameFieldFlag        int        `json:"mb_adaptive_frame_field_flag"`
+	Direct8x8InferenceFlag          int        `json:"direct_8x8_in_ference_flag"`
+	FrameCropingFlag                int        `json:"frame_croping_flag"`
+	FrameCropLeftOffset             int        `json:"frame_crop_left_offset"`
+	FrameCropRightOffset            int        `json:"frame_crop_right_offset"`
+	FrameCropTopOffset              int        `json:"frame_crop_top_offset"`
+	FrameCropButtomOffset           int        `json:"frame_crop_buttom_offset"`
+	VuiParametersPresentFlag        int        `json:"vui_parameters_present_flag"`
 	//...
 }
 
@@ -228,9 +229,10 @@ func ParseSPS(data []byte) {
 	b, _ = buffer.ReadByte()
 	sps.LevelIdc = int(b)
 	// fmt.Printf("level idc: %v\n", sps.LevelIdc)
+
 	bs := core.NewBitStream(buffer.Bytes())
 	sps.SPSId = golomb.ReadUEV(bs)
-	// fmt.Printf("sps id: %v\n", sps.SPSId)
+	fmt.Printf("sps id: %v\n", sps.SPSId)
 
 	if sps.ProfileIdc == 100 || sps.ProfileIdc == 110 || sps.ProfileIdc == 122 ||
 		sps.ProfileIdc == 244 || sps.ProfileIdc == 44 || sps.ProfileIdc == 83 ||
@@ -254,7 +256,7 @@ func ParseSPS(data []byte) {
 			}
 
 			for i := 0; i < scmpfsNum; i++ {
-				// flagI := bs.Next()
+				bs.Next()
 			}
 		}
 
@@ -280,8 +282,8 @@ func ParseSPS(data []byte) {
 		sps.PicWidthInMbsMinus1 = golomb.ReadUEV(bs)
 		sps.PicHeightInMapUnitsMinus1 = golomb.ReadUEV(bs)
 
-		sps.FrmaeMbsOnlyFlag = bs.Next()
-		if sps.FrmaeMbsOnlyFlag == 0 {
+		sps.FrameMbsOnlyFlag = bs.Next()
+		if sps.FrameMbsOnlyFlag == 0 {
 			sps.MbAdaptiveFrameFieldFlag = bs.Next()
 		}
 
@@ -297,6 +299,9 @@ func ParseSPS(data []byte) {
 		sps.VuiParametersPresentFlag = bs.Next()
 		// vui paramters
 	}
+
+	content, _ := json.MarshalIndent(sps, "", "\t")
+	fmt.Printf("sps: \n%v\n", string(content))
 
 	os.Exit(0)
 }

@@ -9,18 +9,18 @@ type BitStream struct {
 }
 
 func NewBitStream(data []byte) *BitStream {
-	return &BitStream{data: data, offset: len(data) - 1, offsetBit: 7}
+	return &BitStream{data: data, offset: 0, offsetBit: 7}
 }
 
 func (bs *BitStream) Next() int {
-	if bs.offset < 0 {
+	if bs.offset >= len(bs.data) {
 		return -1
 	}
 
 	rc := (int(bs.data[bs.offset]) >> bs.offsetBit) & 0x01
 	if bs.offsetBit == 0 {
 		bs.offsetBit = 7
-		bs.offset--
+		bs.offset++
 	} else {
 		bs.offsetBit--
 	}
