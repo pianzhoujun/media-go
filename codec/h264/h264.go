@@ -86,6 +86,7 @@ type Nalu struct {
 	NalReferenceIdc int
 	NalUnitType     int
 	Rbsp            []byte
+	RbspSize        int
 }
 
 func (n *Nalu) String() string {
@@ -140,6 +141,12 @@ type SPS struct {
 }
 
 type PPS struct {
+	PPSId                                 int `json:"pps_id"`
+	SPSId                                 int `json:"sps_id"`
+	EntropyCodingModeFlag                 int `json:"entropy_coding_mode_flag"`
+	BottomFieldPicOrderInFramePresentFlag int `json:"bottom_field_pic_order_in_frame_present_flag"`
+	NumSliceGroupsMinus1                  int `json:"num_slice_groups_minus1"`
+	// ……H.264-AVC-ISO_IEC_14496-10-2012.pdf P-65
 }
 
 var gNaluSize int
@@ -180,44 +187,17 @@ func ParseNalu(vf *VideoFrameInfo, buffer *bytes.Buffer) {
 
 // parse sps nalu and rbsp
 func ParseSPS(data []byte) {
-	buffer := bytes.NewBuffer(data)
-	nalu := Nalu{}
-	b, _ := buffer.ReadByte()
-	n := int(b)
-
-	nalu.ForbiddenBit = n >> 7
-	nalu.NalReferenceIdc = (n >> 5) & 0x03
-	nalu.NalUnitType = n & 0x1f
-
+	nalu := decodeNalu(data)
 	if nalu.NalUnitType != 7 {
 		panic(fmt.Sprintf("nalu type not match %d", nalu.NalUnitType))
 	}
 
-	nalu.Rbsp = make([]byte, len(data))
-	n = 0
-
-	for buffer.Len() > 0 {
-		nalu.Rbsp[n], _ = buffer.ReadByte()
-		if n > 2 && (nalu.Rbsp[n-2] == 0 && nalu.Rbsp[n-1] == 0 && nalu.Rbsp[n] == 3) {
-			if buffer.Len() == 0 {
-				break
-			}
-
-			nalu.Rbsp[n], _ = buffer.ReadByte()
-		}
-
-		n++
-	}
-
-	// TODO: parse sps rbsp
-	buffer = bytes.NewBuffer(nalu.Rbsp[:n])
+	bs := core.NewBitStream(nalu.Rbsp)
 	var sps SPS
-	b, _ = buffer.ReadByte()
+	b, _ := bs.ReadByte()
 	sps.ProfileIdc = int(b)
 
-	// fmt.Printf("idc: %v\n", sps.ProfileIdc)
-
-	b, _ = buffer.ReadByte()
+	b, _ = bs.ReadByte()
 	x := int(b)
 	sps.ConstraintSet0Flag = (x >> 7) & 0x01
 	sps.ConstraintSet1Flag = (x >> 6) & 0x01
@@ -226,13 +206,9 @@ func ParseSPS(data []byte) {
 	sps.ConstraintSet4Flag = (x >> 3) & 0x01
 	sps.ConstraintSet5Flag = (x >> 2) & 0x01
 
-	b, _ = buffer.ReadByte()
+	b, _ = bs.ReadByte()
 	sps.LevelIdc = int(b)
-	// fmt.Printf("level idc: %v\n", sps.LevelIdc)
-
-	bs := core.NewBitStream(buffer.Bytes())
 	sps.SPSId = golomb.ReadUEV(bs)
-	fmt.Printf("sps id: %v\n", sps.SPSId)
 
 	if sps.ProfileIdc == 100 || sps.ProfileIdc == 110 || sps.ProfileIdc == 122 ||
 		sps.ProfileIdc == 244 || sps.ProfileIdc == 44 || sps.ProfileIdc == 83 ||
@@ -302,11 +278,53 @@ func ParseSPS(data []byte) {
 
 	content, _ := json.MarshalIndent(sps, "", "\t")
 	fmt.Printf("sps: \n%v\n", string(content))
+}
+
+func decodeNalu(data []byte) *Nalu {
+	buffer := bytes.NewBuffer(data)
+	nalu := &Nalu{}
+	b, _ := buffer.ReadByte()
+	n := int(b)
+
+	nalu.ForbiddenBit = n >> 7
+	nalu.NalReferenceIdc = (n >> 5) & 0x03
+	nalu.NalUnitType = n & 0x1f
+
+	nalu.Rbsp = make([]byte, len(data))
+	n = 0
+
+	for buffer.Len() > 0 {
+		nalu.Rbsp[n], _ = buffer.ReadByte()
+		if n > 2 && (nalu.Rbsp[n-2] == 0 && nalu.Rbsp[n-1] == 0 && nalu.Rbsp[n] == 3) {
+			if buffer.Len() == 0 {
+				break
+			}
+
+			nalu.Rbsp[n], _ = buffer.ReadByte()
+		}
+
+		n++
+	}
+
+	nalu.RbspSize = n
+	return nalu
+}
+
+func ParsePPS(data []byte) {
+	nalu := decodeNalu(data)
+	pps := PPS{}
+	bs := core.NewBitStream(nalu.Rbsp[:nalu.RbspSize])
+	pps.PPSId = golomb.ReadUEV(bs)
+	pps.SPSId = golomb.ReadUEV(bs)
+	pps.EntropyCodingModeFlag = bs.Next()
+	pps.BottomFieldPicOrderInFramePresentFlag = bs.Next()
+	pps.NumSliceGroupsMinus1 = golomb.ReadUEV(bs)
+
+	content, _ := json.MarshalIndent(pps, "", "\t")
+	fmt.Printf("sps: \n%v\n", string(content))
 
 	os.Exit(0)
 }
-
-func ParsePPS(data []byte) {}
 
 func ParseSeq(vf *VideoFrameInfo, buffer *bytes.Buffer) {
 	cts := ParseCts(buffer)

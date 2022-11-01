@@ -29,16 +29,16 @@ func (bs *BitStream) Next() int {
 }
 
 func (bs *BitStream) ReadByte() (byte, error) {
-	var rc byte
+	var rc int
 
 	for i := 0; i < 8; i++ {
 		x := bs.Next()
 		if x == -1 {
-			return rc, io.EOF
+			return byte(rc), io.EOF
 		}
 
-		rc = (rc << i) | byte(x)
+		rc = x<<(7-i) | rc
 	}
 
-	return rc, nil
+	return byte(rc), nil
 }
