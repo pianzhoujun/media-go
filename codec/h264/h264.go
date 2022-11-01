@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"media-go/codec/golomb"
 	"media-go/core"
-	"os"
 )
 
 const (
@@ -277,7 +276,7 @@ func ParseSPS(data []byte) {
 	}
 
 	content, _ := json.MarshalIndent(sps, "", "\t")
-	fmt.Printf("sps: \n%v\n", string(content))
+	fmt.Printf("\tsps: \n%v\n", string(content))
 }
 
 func decodeNalu(data []byte) *Nalu {
@@ -313,7 +312,7 @@ func decodeNalu(data []byte) *Nalu {
 func ParsePPS(data []byte) {
 	nalu := decodeNalu(data)
 	pps := PPS{}
-	bs := core.NewBitStream(nalu.Rbsp[:nalu.RbspSize])
+	bs := core.NewBitStream(nalu.Rbsp)
 	pps.PPSId = golomb.ReadUEV(bs)
 	pps.SPSId = golomb.ReadUEV(bs)
 	pps.EntropyCodingModeFlag = bs.Next()
@@ -321,9 +320,7 @@ func ParsePPS(data []byte) {
 	pps.NumSliceGroupsMinus1 = golomb.ReadUEV(bs)
 
 	content, _ := json.MarshalIndent(pps, "", "\t")
-	fmt.Printf("sps: \n%v\n", string(content))
-
-	os.Exit(0)
+	fmt.Printf("\tsps: \n%v\n", string(content))
 }
 
 func ParseSeq(vf *VideoFrameInfo, buffer *bytes.Buffer) {
